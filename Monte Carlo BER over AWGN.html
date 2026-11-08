@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Monte Carlo BER over AWGN</title>
+<style>
+:root {
+  --bg:#f7f7f5; --panel:#ffffff; --border:#dcdad3; --text:#1a1a1a; --sub:#5a5a55;
+  --accent:#185fa5; --good:#3b6d11; --bad:#a32d2d; --track:#e6e4dd;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg:#17171a; --panel:#232326; --border:#3a3a3d; --text:#eee; --sub:#aaa;
+  --accent:#5aa4ec; --good:#97c459; --bad:#f09595; --track:#3a3a3d; }
+}
+:root[data-theme="dark"] { --bg:#17171a; --panel:#232326; --border:#3a3a3d; --text:#eee; --sub:#aaa;
+  --accent:#5aa4ec; --good:#97c459; --bad:#f09595; --track:#3a3a3d; }
+html{scroll-padding-top:env(safe-area-inset-top,0px);}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.5;}
+.wrap{max-width:980px;margin:0 auto;padding:1.5rem 1rem 3rem;}
+h1{font-size:1.3rem;margin:0 0 .25rem;}
+h2{font-size:1.05rem;margin:1.6rem 0 .5rem;color:var(--accent);}
+p.sub{color:var(--sub);margin:0 0 1rem;font-size:.9rem;}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:1rem;margin-bottom:1rem;}
+.row{display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;margin-bottom:.5rem;}
+.field{display:flex;flex-direction:column;font-size:.8rem;color:var(--sub);gap:.25rem;}
+.field select,.field input[type=number]{padding:.35rem .4rem;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);width:120px;}
+.field input[type=range]{width:150px;}
+label.chk{font-size:.82rem;display:flex;align-items:center;gap:.3rem;color:var(--text);}
+button{background:var(--accent);color:#fff;border:none;padding:.5rem .9rem;border-radius:6px;font-size:.85rem;cursor:pointer;}
+button.sec{background:transparent;color:var(--accent);border:1px solid var(--accent);}
+.chartbox{position:relative;height:250px;margin:.5rem 0 1rem;}
+.lbl{font-size:.78rem;color:var(--sub);margin:.2rem 0 .2rem;}
+table{width:100%;border-collapse:collapse;font-size:.78rem;margin-top:.5rem;}
+th,td{border-bottom:1px solid var(--border);padding:.28rem .35rem;text-align:center;}
+th{color:var(--sub);font-weight:500;}
+td.ok{color:var(--good);font-weight:600;}
+td.no{color:var(--bad);font-weight:600;}
+.overflow{overflow-x:auto;}
+.bar{height:8px;background:var(--track);border-radius:4px;overflow:hidden;margin:.4rem 0;}
+.bar>div{height:100%;width:0;background:var(--accent);transition:width .15s;}
+.pill{display:inline-block;padding:.15rem .55rem;border-radius:20px;font-size:.75rem;font-weight:600;margin:0 .3rem .3rem 0;}
+.pill.good{background:rgba(59,109,17,.15);color:var(--good);}
+.pill.bad{background:rgba(163,45,45,.15);color:var(--bad);}
+.note{font-size:.85rem;color:var(--sub);border-left:3px solid var(--accent);padding:.4rem .7rem;background:rgba(24,95,165,.06);border-radius:0 6px 6px 0;margin:.5rem 0;}
+.interp{font-size:.88rem;margin-top:.4rem;}
+code{font-size:.82rem;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Experiment 12 — Monte Carlo BER over AWGN</h1>
+<p class="sub">Symbol-level simulation of BPSK, QPSK, coherent orthogonal BFSK, 8-PSK, 16-QAM and 64-QAM with Gray labeling and minimum-distance detection. Every E<sub>b</sub>/N<sub>0</sub> point runs until the error target <em>or</em> the bit limit is reached, whichever comes first. Points with zero errors are shown as upper bounds, never as BER = 0.</p>
+
+<div class="card">
+  <h2 style="margin-top:0">1 · Monte Carlo settings</h2>
+  <div class="row">
+    <div class="field"><label>Stop at errors</label><input id="target" type="number" value="200" min="10" max="5000"></div>
+    <div class="field"><label>Max bits per point</label><input id="maxbits" type="number" value="1000000" min="10000" max="5000000" step="10000"></div>
+    <div class="field"><label>E<sub>b</sub>/N<sub>0</sub> from (dB)</label><input id="ebmin" type="number" value="0" min="-10" max="30"></div>
+    <div class="field"><label>to (dB)</label><input id="ebmax" type="number" value="16" min="-10" max="30"></div>
+    <div class="field"><label>step (dB)</label><input id="ebstep" type="number" value="2" min="0.5" max="5" step="0.5"></div>
+  </div>
+  <div class="row">
+    <label class="chk"><input type="checkbox" class="sch" value="bpsk" checked> BPSK</label>
+    <label class="chk"><input type="checkbox" class="sch" value="qpsk" checked> QPSK</label>
+    <label class="chk"><input type="checkbox" class="sch" value="bfsk" checked> BFSK</label>
+    <label class="chk"><input type="checkbox" class="sch" value="8psk" checked> 8-PSK</label>
+    <label class="chk"><input type="checkbox" class="sch" value="16qam" checked> 16-QAM</label>
+    <label class="chk"><input type="checkbox" class="sch" value="64qam" checked> 64-QAM</label>
+  </div>
+  <div class="row">
+    <button id="runMC">Run Monte Carlo</button>
+    <button class="sec" id="quickMC">Quick run (10⁵ bits)</button>
+    <button class="sec" id="stopMC">Stop</button>
+  </div>
+  <div class="bar"><div id="barFill"></div></div>
+  <div class="lbl" id="progText">Idle.</div>
+  <div class="note">Expected: simulated markers fall on the theoretical lines wherever the line is valid and enough errors were counted (≥ 100 errors gives roughly ±10% relative uncertainty). Curves shift right with modulation order at a given BER, BFSK sits 3 dB to the right of BPSK, and the 8-PSK/16-QAM/64-QAM theory curves are high-SNR approximations that overestimate BER at low E<sub>b</sub>/N<sub>0</sub>. At the highest E<sub>b</sub>/N<sub>0</sub> values the budget of 10<sup>6</sup> bits cannot resolve BER below about 3×10<sup>−6</sup>: those points must appear as upper bounds.</div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">2 · E<sub>b</sub>/N<sub>0</sub> → noise variance, with numerical check</h2>
+  <p class="sub" style="margin-top:-.3rem">Chain used by the simulator: E<sub>s</sub> = average energy of the normalized constellation (= 1), E<sub>b</sub> = E<sub>s</sub>/k with k = log<sub>2</sub>M bits per symbol, N<sub>0</sub> = E<sub>b</sub>/(E<sub>b</sub>/N<sub>0</sub>)<sub>linear</sub>, complex noise variance σ² = N<sub>0</sub> (so N<sub>0</sub>/2 per real dimension). The last column is the variance actually measured on the noise added inside the simulator.</p>
+  <div class="row"><div class="field"><label>E<sub>b</sub>/N<sub>0</sub> for this check (dB)</label><input id="convDb" type="range" min="-5" max="20" step="1" value="10"><span id="convVal">10</span></div></div>
+  <div class="overflow" id="convTable"></div>
+  <div class="interp" id="convInterp"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">3 · BER versus E<sub>b</sub>/N<sub>0</sub> (semilog)</h2>
+  <div class="chartbox" style="height:420px"><canvas id="chBER" role="img" aria-label="Simulated BER markers and theoretical curves versus Eb/N0 for six modulation schemes on a semilogarithmic axis, with zero-error points drawn as upper bounds">BER curves.</canvas></div>
+  <div class="lbl">Filled markers: simulated BER. Lines: theory (exact for BPSK, QPSK, BFSK; Gray high-SNR approximation, drawn only where SER &lt; 0.3, for 8-PSK, 16-QAM, 64-QAM). Hollow ▽: no errors observed, plotted at the 95% upper bound 3/N.</div>
+  <div class="interp" id="berInterp"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">4 · Error count versus transmitted bits</h2>
+  <div class="row"><div class="field"><label>Scheme</label><select id="inspect"></select></div></div>
+  <div class="chartbox" style="height:300px"><canvas id="chCount" role="img" aria-label="Cumulative error count versus number of transmitted bits for each Eb/N0 point of the selected scheme, with the 200-error and 10^6-bit stopping lines">Error count vs bits.</canvas></div>
+  <div class="interp" id="countInterp"></div>
+  <div class="overflow" id="resTable"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">5 · Mandatory validation</h2>
+  <p class="sub" style="margin-top:-.3rem">(a) With σ = 0 and at E<sub>b</sub>/N<sub>0</sub> = 40 dB the detector must return the transmitted bits exactly. (b) At E<sub>b</sub>/N<sub>0</sub> = −30 dB the received sample carries essentially no information about the sent symbol, so each bit is wrong with probability 1/2 regardless of constellation or mapping.</p>
+  <div class="overflow" id="valTable"></div>
+  <div class="interp" id="valInterp"></div>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const R2 = Math.SQRT1_2;
+const SCH = [
+  {id:'bpsk',  name:'BPSK',  k:1, M:2,  col:'#2a78d6', ps:'circle',   exact:true},
+  {id:'qpsk',  name:'QPSK',  k:2, M:4,  col:'#1baf7a', ps:'rect',     exact:true},
+  {id:'bfsk',  name:'BFSK',  k:1, M:2,  col:'#e34948', ps:'triangle', exact:true},
+  {id:'8psk',  name:'8-PSK', k:3, M:8,  col:'#c98a00', ps:'rectRot',  exact:false},
+  {id:'16qam', name:'16-QAM',k:4, M:16, col:'#eb6834', ps:'star',     exact:false},
+  {id:'64qam', name:'64-QAM',k:6, M:64, col:'#6250d6', ps:'crossRot', exact:false}
+];
+const POP = []; for(let i=0;i<64;i++){ let c=0, x=i; while(x){ c += x&1; x >>= 1; } POP.push(c); }
+function g(i){ return i ^ (i>>1); }
+
+function isDark(){ return matchMedia('(prefers-color-scheme: dark)').matches; }
+const ink = () => isDark() ? '#eee' : '#1a1a1a';
+const gridc = () => isDark() ? '#3a3a3d' : '#dcdad3';
+let charts = {};
+function upsertChart(id, config){ if(charts[id]) charts[id].destroy(); charts[id] = new Chart(document.getElementById(id), config); }
+function pts(xs, ys){ return xs.map((x,i)=>({x:x, y:ys[i]})); }
+
+// ---------- RNG ----------
+let spare = null;
+function gauss(){
+  if(spare !== null){ const s = spare; spare = null; return s; }
+  let u, v, s;
+  do { u = 2*Math.random()-1; v = 2*Math.random()-1; s = u*u + v*v; } while(s >= 1 || s === 0);
+  const m = Math.sqrt(-2*Math.log(s)/s); spare = v*m; return u*m;
+}
+
+// ---------- Eb/N0 -> noise ----------
+function ebn0Lin(db){ return Math.pow(10, db/10); }
+// Constellations are normalized to Es = 1, so Eb = 1/k, N0 = Eb/(Eb/N0), noise std per real dimension = sqrt(N0/2).
+function N0of(sc, db){ return (1/sc.k)/ebn0Lin(db); }
+function sigmaDim(sc, db){ return Math.sqrt(N0of(sc, db)/2); }
+
+// ---------- Constellations (for the energy check) ----------
+function constellation(id){
+  if(id==='bpsk') return [[1,0],[-1,0]];
+  if(id==='qpsk') return [[R2,R2],[-R2,R2],[-R2,-R2],[R2,-R2]];
+  if(id==='bfsk') return [[1,0],[0,1]];
+  if(id==='8psk'){ const a=[]; for(let k=0;k<8;k++) a.push([Math.cos(k*Math.PI/4), Math.sin(k*Math.PI/4)]); return a; }
+  const L = id==='16qam' ? 4 : 8, M = L*L, sc = 1/Math.sqrt(2*(M-1)/3), a = [];
+  for(let i=0;i<L;i++) for(let q=0;q<L;q++) a.push([(2*i-(L-1))*sc, (2*q-(L-1))*sc]);
+  return a;
+}
+function avgE(id){ const c = constellation(id); return c.reduce((s,p)=>s+p[0]*p[0]+p[1]*p[1],0)/c.length; }
+
+// ---------- Core: simulate up to nsym symbols, stop early when errCap errors are reached ----------
+function runSymbols(id, nsym, sg, errCap){
+  let errs = 0, done = 0, nsq = 0, nn = 0;
+  if(id==='bpsk'){
+    while(done < nsym){
+      const b = Math.random()<0.5 ? 1 : 0, n = sg*gauss(), r = (1-2*b) + n;
+      nsq += n*n; nn++; done++;
+      if((r<0?1:0) !== b) errs++;
+      if(errs >= errCap) break;
+    }
+  } else if(id==='qpsk'){
+    while(done < nsym){
+      const b1 = Math.random()<0.5?1:0, b0 = Math.random()<0.5?1:0, n1 = sg*gauss(), n2 = sg*gauss();
+      const rI = (1-2*b1)*R2 + n1, rQ = (1-2*b0)*R2 + n2;
+      nsq += n1*n1 + n2*n2; nn += 2; done++;
+      if((rI<0?1:0) !== b1) errs++; if((rQ<0?1:0) !== b0) errs++;
+      if(errs >= errCap) break;
+    }
+  } else if(id==='bfsk'){
+    while(done < nsym){
+      const b = Math.random()<0.5?1:0, n0 = sg*gauss(), n1 = sg*gauss();
+      const r0 = (b?0:1) + n0, r1 = (b?1:0) + n1;
+      nsq += n0*n0 + n1*n1; nn += 2; done++;
+      if((r1>r0?1:0) !== b) errs++;
+      if(errs >= errCap) break;
+    }
+  } else if(id==='8psk'){
+    const step = Math.PI/4;
+    while(done < nsym){
+      const k = Math.floor(Math.random()*8), a = step*k, n1 = sg*gauss(), n2 = sg*gauss();
+      const ang = Math.atan2(Math.sin(a)+n2, Math.cos(a)+n1);
+      let kk = Math.round(ang/step); kk = ((kk%8)+8)%8;
+      nsq += n1*n1 + n2*n2; nn += 2; done++;
+      errs += POP[g(k) ^ g(kk)];
+      if(errs >= errCap) break;
+    }
+  } else {
+    const L = id==='16qam' ? 4 : 8, M = L*L, sc = 1/Math.sqrt(2*(M-1)/3);
+    while(done < nsym){
+      const iI = Math.floor(Math.random()*L), iQ = Math.floor(Math.random()*L), n1 = sg*gauss(), n2 = sg*gauss();
+      const rI = (2*iI-(L-1))*sc + n1, rQ = (2*iQ-(L-1))*sc + n2;
+      let jI = Math.round((rI/sc + (L-1))/2), jQ = Math.round((rQ/sc + (L-1))/2);
+      jI = jI<0 ? 0 : (jI>L-1 ? L-1 : jI); jQ = jQ<0 ? 0 : (jQ>L-1 ? L-1 : jQ);
+      nsq += n1*n1 + n2*n2; nn += 2; done++;
+      errs += POP[g(iI)^g(jI)] + POP[g(iQ)^g(jQ)];
+      if(errs >= errCap) break;
+    }
+  }
+  return { errs:errs, done:done, nsq:nsq, nn:nn };
+}
+
+// ---------- Theory ----------
+function Qf(x){ const z=Math.abs(x), t=1/(1+0.5*z);
+  const r=t*Math.exp(-z*z-1.26551223+t*(1.00002368+t*(0.37409196+t*(0.09678418+t*(-0.18628806+t*(0.27886807+t*(-1.13520398+t*(1.48851587+t*(-0.82215223+t*0.17087277)))))))));
+  return 0.5*(x>=0 ? r : 2-r)*1; }
+function Q(x){ return Qf(x/Math.SQRT2); }
+function theory(sc, db){
+  const gb = ebn0Lin(db), k = sc.k;
+  if(sc.id==='bpsk' || sc.id==='qpsk') return { ber:Q(Math.sqrt(2*gb)), ok:true };
+  if(sc.id==='bfsk') return { ber:Q(Math.sqrt(gb)), ok:true };
+  let ser;
+  if(sc.id==='8psk') ser = 2*Q(Math.sqrt(2*k*gb)*Math.sin(Math.PI/8));
+  else { const pv = 2*(1-1/Math.sqrt(sc.M))*Q(Math.sqrt(3*k*gb/(sc.M-1))); ser = 1-(1-pv)*(1-pv); }
+  return { ber:Math.min(ser,1)/k, ok: ser < 0.3 };
+}
+function wilson(e, n){ const z=1.96, p=e/n, d=1+z*z/n, c=(p+z*z/(2*n))/d, h=z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n))/d; return [Math.max(0,c-h), c+h]; }
+
+// ---------- Adaptive Monte Carlo driver ----------
+let RES = {}, runToken = 0;
+const tick = () => new Promise(r=>setTimeout(r,0));
+async function runPoint(sc, db, target, maxBits, token){
+  const sg = sigmaDim(sc, db);
+  let bits = 0, errs = 0, batch = 1000; const traj = [];
+  while(errs < target && bits < maxBits){
+    const nsym = Math.min(Math.ceil(batch/sc.k), Math.floor((maxBits-bits)/sc.k));
+    if(nsym < 1) break;
+    const r = runSymbols(sc.id, nsym, sg, target-errs);
+    bits += r.done*sc.k; errs += r.errs; traj.push([bits, errs]);
+    batch = Math.min(batch*1.6, 60000);
+    await tick(); if(token !== runToken) return null;
+  }
+  return { db:db, bits:bits, errs:errs, ber: errs>0 ? errs/bits : null, ub: errs===0 ? 3/bits : null, status: errs>=target ? 'error target' : 'bit limit', traj:traj };
+}
+function getSettings(){
+  const sel = []; document.querySelectorAll('input.sch').forEach(c=>{ if(c.checked) sel.push(c.value); });
+  const ebs = [], a = +document.getElementById('ebmin').value, b = +document.getElementById('ebmax').value, s = Math.max(0.5, +document.getElementById('ebstep').value||2);
+  for(let x=a; x<=b+1e-9; x+=s) ebs.push(Math.round(x*100)/100);
+  return { sel:sel, ebs:ebs, target:Math.max(10,+document.getElementById('target').value||200), maxBits:Math.max(10000,+document.getElementById('maxbits').value||1000000) };
+}
+async function runMC(){
+  const S = getSettings(), token = ++runToken; RES = {};
+  const list = SCH.filter(s=>S.sel.indexOf(s.id)>=0); if(list.length===0 || S.ebs.length===0){ document.getElementById('progText').textContent='Select at least one scheme and a valid range.'; return; }
+  const total = list.length*S.ebs.length; let n = 0;
+  fillInspect(list);
+  for(const sc of list){
+    RES[sc.id] = [];
+    for(const db of S.ebs){
+      document.getElementById('progText').textContent = `Running ${sc.name} at E_b/N_0 = ${db} dB  (point ${n+1} of ${total}) — stop at ${S.target} errors or ${S.maxBits.toLocaleString()} bits`;
+      const r = await runPoint(sc, db, S.target, S.maxBits, token);
+      if(r === null){ document.getElementById('progText').textContent = 'Stopped.'; return; }
+      RES[sc.id].push(r); n++;
+      document.getElementById('barFill').style.width = (100*n/total).toFixed(1)+'%';
+    }
+    renderAll(S);
+  }
+  document.getElementById('progText').textContent = `Done: ${total} points simulated.`;
+  renderAll(S);
+}
+
+// ---------- Rendering ----------
+function fillInspect(list){
+  const el = document.getElementById('inspect'), prev = el.value; el.innerHTML = '';
+  list.forEach(s=>{ const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; el.appendChild(o); });
+  if(prev && list.some(s=>s.id===prev)) el.value = prev;
+}
+function axisOpts(xl, yl, o){
+  const sc = { x:{ type:o.xlog?'logarithmic':'linear', ticks:{color:ink(), font:{size:12}}, grid:{color:gridc()}, title:{display:true,text:xl,color:ink(),font:{size:13}} },
+               y:{ type:'logarithmic', ticks:{color:ink(), font:{size:12}}, grid:{color:gridc()}, title:{display:true,text:yl,color:ink(),font:{size:13}} } };
+  if(o.xmin!==undefined){ sc.x.min=o.xmin; sc.x.max=o.xmax; }
+  sc.y.min = o.ymin; sc.y.max = o.ymax;
+  const leg = { position:'top', labels:{ color:ink(), usePointStyle:true, boxWidth:8, font:{size:12} } };
+  if(o.legendFilter) leg.labels.filter = o.legendFilter;
+  return { responsive:true, maintainAspectRatio:false, animation:false, scales:sc, plugins:{ legend:leg } };
+}
+function renderBER(S){
+  const ds = [], gx = []; for(let x=S.ebs[0]; x<=S.ebs[S.ebs.length-1]+1e-9; x+=0.25) gx.push(x);
+  SCH.forEach(sc=>{
+    const R = RES[sc.id]; if(!R) return;
+    ds.push({ label:`${sc.name} sim`, data:pts(R.filter(r=>r.errs>0).map(r=>r.db), R.filter(r=>r.errs>0).map(r=>r.ber)), borderColor:sc.col, backgroundColor:sc.col, pointStyle:sc.ps, pointRadius:5, borderWidth:1.5, showLine:false });
+    ds.push({ label:`${sc.name} bound`, data:pts(R.filter(r=>r.errs===0).map(r=>r.db), R.filter(r=>r.errs===0).map(r=>r.ub)), borderColor:sc.col, backgroundColor:'rgba(0,0,0,0)', pointStyle:'triangle', rotation:180, pointRadius:6, borderWidth:1.6, showLine:false });
+    const tc = gx.map(x=>({x:x, t:theory(sc,x)})).filter(p=>p.t.ok);
+    ds.push({ label:`${sc.name} theory`, data:pts(tc.map(p=>p.x), tc.map(p=>p.t.ber)), borderColor:sc.col, borderWidth:1.3, borderDash: sc.exact?[]:[6,3], pointRadius:0 });
+  });
+  ds.push({ label:'Theory (lines)', data:[], borderColor:'#888780', borderWidth:1.3, pointRadius:0 });
+  ds.push({ label:'No errors: upper bound 3/N', data:[], borderColor:'#888780', backgroundColor:'rgba(0,0,0,0)', pointStyle:'triangle', rotation:180, pointRadius:6, showLine:false });
+  upsertChart('chBER', { type:'line', data:{ datasets:ds }, options: axisOpts('E_b/N_0 (dB)','Bit error rate', { xmin:S.ebs[0], xmax:S.ebs[S.ebs.length-1], ymin:1e-7, ymax:1, legendFilter:(it)=>/ sim$|^Theory|^No errors/.test(it.text) }) });
+  // agreement summary
+  const parts = [];
+  SCH.forEach(sc=>{
+    const R = RES[sc.id]; if(!R) return;
+    const use = R.filter(r=>r.errs>=20 && theory(sc,r.db).ok); if(use.length===0) return;
+    let inside = 0; use.forEach(r=>{ const w = wilson(r.errs, r.bits), t = theory(sc,r.db).ber; if(t>=w[0] && t<=w[1]) inside++; });
+    parts.push(`${sc.name}: ${inside}/${use.length} points inside the 95% interval${sc.exact?'':' (approximate theory)'}`);
+  });
+  const nb = SCH.reduce((s,sc)=> s + (RES[sc.id]? RES[sc.id].filter(r=>r.errs===0).length : 0), 0);
+  document.getElementById('berInterp').innerHTML = `<b>Observation:</b> theory agreement (points with ≥ 20 errors where the theory is valid) — ${parts.join('; ')||'no comparable points yet'}. ${nb>0 ? nb+' point(s) saw zero errors and are drawn as upper bounds 3/N rather than BER = 0 (a log axis cannot show 0, and N bits can only prove BER &lt; 3/N at 95% confidence).' : 'No zero-error points in this range.'} `+
+    `Expected deviations by design: with fewer than 100 errors a point is statistically noisy, and the 8-PSK / 16-QAM / 64-QAM curves are Gray-mapping nearest-neighbour approximations, so they may sit slightly off the markers at the low-E<sub>b</sub>/N<sub>0</sub> edge of where they are drawn. Diagnostic: the 95% Wilson interval of each point (table below) separates statistical scatter from a genuine model mismatch.`;
+}
+function renderCount(S){
+  const id = document.getElementById('inspect').value, R = RES[id], sc = SCH.find(s=>s.id===id);
+  if(!R || !sc) return;
+  const ds = [], n = R.length;
+  R.forEach((r,i)=>{
+    const tj = r.traj.filter(p=>p[1]>0);
+    ds.push({ label:`${r.db} dB`, data:pts(tj.map(p=>p[0]), tj.map(p=>p[1])), borderColor:`hsl(${Math.round(220 - 200*i/Math.max(n-1,1))},65%,${isDark()?62:42}%)`, borderWidth:1.5, pointRadius:2 });
+  });
+  ds.push({ label:'Error target', data:[{x:100,y:S.target},{x:S.maxBits*3,y:S.target}], borderColor:'#888780', borderDash:[5,4], borderWidth:1.1, pointRadius:0 });
+  ds.push({ label:'Bit limit', data:[{x:S.maxBits,y:0.8},{x:S.maxBits,y:S.target*3}], borderColor:'#b4b2a9', borderDash:[2,3], borderWidth:1.1, pointRadius:0 });
+  upsertChart('chCount', { type:'line', data:{ datasets:ds }, options: axisOpts('transmitted bits','cumulative errors', { xlog:true, xmin:1000, xmax:S.maxBits*1.5, ymin:0.8, ymax:S.target*3 }) });
+  const hit = R.filter(r=>r.status==='error target').length, lim = R.length-hit;
+  document.getElementById('countInterp').innerHTML = `<b>Observation (${sc.name}):</b> ${hit} point(s) stopped on the ${S.target}-error target (low E<sub>b</sub>/N<sub>0</sub> curves climb steeply and stop after only a few thousand bits), while ${lim} point(s) ran to the ${S.maxBits.toLocaleString()}-bit limit with fewer errors (curves flatten as errors become rare). A straight line of slope 1 on this log–log plot is the signature of a constant BER; its height at the stopping point is the BER estimate.`;
+  let rows = `<table><tr><th>E<sub>b</sub>/N<sub>0</sub> (dB)</th><th>bits</th><th>errors</th><th>BER (sim)</th><th>95% interval</th><th>theory</th><th>stopped by</th></tr>`;
+  R.forEach(r=>{
+    const t = theory(sc, r.db), w = r.errs>0 ? wilson(r.errs, r.bits) : [0, r.ub];
+    rows += `<tr><td>${r.db}</td><td>${r.bits.toLocaleString()}</td><td>${r.errs}</td><td>${r.errs>0 ? r.ber.toExponential(2) : '&lt; '+r.ub.toExponential(1)+' (bound)'}</td><td>${r.errs>0 ? w[0].toExponential(1)+' – '+w[1].toExponential(1) : '0 – '+r.ub.toExponential(1)}</td><td>${t.ok ? t.ber.toExponential(2) : '—'}</td><td>${r.status}</td></tr>`;
+  });
+  rows += `</table>`;
+  document.getElementById('resTable').innerHTML = rows;
+}
+function renderAll(S){ renderBER(S); renderCount(S); }
+
+// ---------- Section 2: conversion check ----------
+function renderConv(){
+  const db = +document.getElementById('convDb').value, gl = ebn0Lin(db);
+  let rows = `<table><tr><th>Scheme</th><th>k = log₂M</th><th>E<sub>s</sub> (numeric avg)</th><th>E<sub>b</sub> = E<sub>s</sub>/k</th><th>(E<sub>b</sub>/N<sub>0</sub>)<sub>lin</sub></th><th>N<sub>0</sub></th><th>σ² per dim = N<sub>0</sub>/2</th><th>complex σ² = N<sub>0</sub></th><th>measured σ² per dim</th><th>error</th></tr>`;
+  let worst = 0;
+  SCH.forEach(sc=>{
+    const Es = avgE(sc.id), Eb = Es/sc.k, N0 = Eb/gl, s2 = N0/2, sg = Math.sqrt(s2);
+    const r = runSymbols(sc.id, 150000, sg, Infinity), meas = r.nsq/r.nn, err = Math.abs(meas/s2-1);
+    worst = Math.max(worst, err);
+    rows += `<tr><td>${sc.name}</td><td>${sc.k}</td><td>${Es.toFixed(4)}</td><td>${Eb.toFixed(4)}</td><td>${gl.toFixed(3)}</td><td>${N0.toExponential(3)}</td><td>${s2.toExponential(3)}</td><td>${N0.toExponential(3)}</td><td>${meas.toExponential(3)}</td><td class="${err<0.02?'ok':'no'}">${(100*err).toFixed(2)}%</td></tr>`;
+  });
+  rows += `</table>`;
+  document.getElementById('convTable').innerHTML = rows;
+  document.getElementById('convInterp').innerHTML = `<span class="pill ${worst<0.02?'good':'bad'}">Measured noise variance within ${(100*worst).toFixed(2)}% of N<sub>0</sub>/2 for every scheme</span><br><b>Observation:</b> all six constellations have E<sub>s</sub> = 1.0000, so E<sub>b</sub> differs by scheme (1, ½, 1, ⅓, ¼, ⅙) and the same E<sub>b</sub>/N<sub>0</sub> therefore produces a <em>different</em> noise variance for each — using E<sub>s</sub>/N<sub>0</sub> or forgetting the factor k is the classic mistake that shifts a curve by 10·log₁₀k dB (3 dB for QPSK, 6 dB for 16-QAM, 7.8 dB for 64-QAM). BFSK is the one case where E<sub>b</sub> = E<sub>s</sub> but signals sit on two orthogonal axes.`;
+}
+
+// ---------- Section 5: mandatory validation ----------
+function renderVal(){
+  const N = 120000; let allHigh = true, allLow = true;
+  let rows = `<table><tr><th>Scheme</th><th>σ = 0: errors / bits</th><th>40 dB: errors / bits</th><th>−30 dB: BER</th><th>expected 0.5 ± 3·SE</th><th>noiseless exact?</th><th>random limit reached?</th></tr>`;
+  SCH.forEach(sc=>{
+    const nsym = Math.floor(N/sc.k), bits = nsym*sc.k;
+    const a = runSymbols(sc.id, nsym, 0, Infinity), b = runSymbols(sc.id, nsym, sigmaDim(sc,40), Infinity), c = runSymbols(sc.id, nsym, sigmaDim(sc,-30), Infinity);
+    const ber = c.errs/bits, se = Math.sqrt(0.25/bits), okH = a.errs===0 && b.errs===0, okL = Math.abs(ber-0.5) <= 3*se;
+    if(!okH) allHigh=false; if(!okL) allLow=false;
+    rows += `<tr><td>${sc.name}</td><td>${a.errs} / ${bits.toLocaleString()}</td><td>${b.errs} / ${bits.toLocaleString()}</td><td>${ber.toFixed(4)}</td><td>0.5000 ± ${(3*se).toFixed(4)}</td><td class="${okH?'ok':'no'}">${okH?'yes':'NO'}</td><td class="${okL?'ok':'no'}">${okL?'yes':'NO'}</td></tr>`;
+  });
+  rows += `</table>`;
+  document.getElementById('valTable').innerHTML = rows;
+  document.getElementById('valInterp').innerHTML = `<span class="pill ${allHigh?'good':'bad'}">High SNR: noiseless input reproduced exactly by all six detectors</span><span class="pill ${allLow?'good':'bad'}">Low SNR: BER → 0.5 for all six (random-decision limit)</span><br><b>Observation:</b> with no noise every transmitted symbol sits exactly on its own decision region, so zero errors is guaranteed — any non-zero count here would indicate a mapper/demapper inconsistency. At −30 dB the noise is ~30 dB above the signal, the detected symbol is statistically independent of the sent one, and each bit then matches by chance half the time. This holds for M-ary schemes even though their <em>symbol</em> error limit is (M−1)/M and detection regions differ in size, because the transmitted bit is uniform and independent of the decision.`;
+}
+
+// ---------- Wiring ----------
+document.getElementById('convDb').addEventListener('input', e=>{ document.getElementById('convVal').textContent = e.target.value; renderConv(); });
+document.getElementById('inspect').addEventListener('change', ()=>{ renderCount(getSettings()); });
+document.getElementById('runMC').onclick = ()=>{ runMC(); };
+document.getElementById('quickMC').onclick = ()=>{ document.getElementById('maxbits').value = 100000; runMC(); };
+document.getElementById('stopMC').onclick = ()=>{ runToken++; document.getElementById('progText').textContent = 'Stopped.'; };
+
+renderConv();
+renderVal();
+runMC();
+</script>
+</body>
+</html>
